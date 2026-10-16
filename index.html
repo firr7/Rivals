@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Redline Rivals</title>
+  <meta name="description" content="Gioco di corse stradali 3D a tema street racing al tramonto. Funziona offline come app (PWA).">
+  <meta name="theme-color" content="#0b0a10">
+  <meta name="color-scheme" content="dark">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Redline">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="booting">
+  <canvas id="gl" aria-hidden="true"></canvas>
+
+  <!-- Caricamento -->
+  <section id="screen-loading" class="screen show">
+    <div class="loading-box">
+      <div class="logo-mark"><span>REDLINE</span><b>RIVALS</b></div>
+      <div class="bar"><i id="loading-bar"></i></div>
+      <p id="loading-text">Avvio motore grafico…</p>
+    </div>
+  </section>
+
+  <!-- Menu principale -->
+  <section id="screen-menu" class="screen">
+    <div class="menu-wrap">
+      <header class="brand">
+        <small>STREET RACING</small>
+        <h1><span>REDLINE</span><b>RIVALS</b></h1>
+      </header>
+      <nav class="menu-list" aria-label="Menu principale">
+        <button class="mbtn primary" data-act="play"><i></i><span>GIOCA</span></button>
+        <button class="mbtn" data-act="options"><i></i><span>OPZIONI</span></button>
+        <button class="mbtn" data-act="controls"><i></i><span>COMANDI</span></button>
+        <button class="mbtn" data-act="install" id="btn-install" hidden><i></i><span>INSTALLA APP</span></button>
+        <button class="mbtn ghost" data-act="fullscreen" id="btn-fullscreen"><i></i><span>SCHERMO INTERO</span></button>
+      </nav>
+    </div>
+    <footer class="menu-foot">
+      <div id="menu-records"></div>
+      <div class="ver">v<span id="ver"></span> · <span id="net-status">online</span></div>
+    </footer>
+  </section>
+
+  <!-- Garage / scelta auto -->
+  <section id="screen-garage" class="screen">
+    <div class="garage-top">
+      <button class="back" data-act="back" aria-label="Indietro">‹ INDIETRO</button>
+      <h2>GARAGE</h2>
+      <div class="garage-sub">SCEGLI LA TUA AUTO</div>
+    </div>
+    <div class="garage-panel">
+      <div class="car-select">
+        <button class="arrow" data-act="prev-car" aria-label="Auto precedente" disabled>‹</button>
+        <div class="car-name"><small id="car-index">1 / 1</small><h3 id="car-name">APEX GT-R</h3><p id="car-tag"></p></div>
+        <button class="arrow" data-act="next-car" aria-label="Auto successiva" disabled>›</button>
+      </div>
+      <div class="stats" id="car-stats"></div>
+      <div class="colors-label">COLORE</div>
+      <div class="swatches" id="car-colors"></div>
+      <div class="map-card">
+        <small>CIRCUITO</small>
+        <b id="map-name">DOWNTOWN RUN</b>
+        <span id="map-info"></span>
+      </div>
+      <button class="mbtn primary go" data-act="race"><i></i><span>CORRI</span></button>
+    </div>
+  </section>
+
+  <!-- HUD -->
+  <section id="hud" class="screen">
+    <div class="hud-tl">
+      <div class="hud-pos"><small>POSIZIONE</small><b id="hud-pos">1</b><em id="hud-total">/4</em></div>
+      <div class="hud-lap"><small>GIRO</small><b id="hud-lap">1</b><em id="hud-laps">/3</em></div>
+    </div>
+    <div class="hud-times">
+      <div><small>TEMPO</small><b id="hud-time">0:00.00</b></div>
+      <div><small>GIRO</small><b id="hud-laptime">0:00.00</b></div>
+      <div><small>MIGLIORE</small><b id="hud-best">--:--.--</b></div>
+    </div>
+    <canvas id="minimap" width="360" height="270"></canvas>
+    <div class="hud-gauge">
+      <canvas id="gauge" width="360" height="360"></canvas>
+      <div class="nitro"><small>NITRO</small><div class="nbar"><i id="nitro-fill"></i></div></div>
+    </div>
+    <div id="hud-center"></div>
+    <div id="hud-toast"></div>
+    <div id="hud-fps"></div>
+    <div id="hud-wrong">CONTROMANO!</div>
+  </section>
+
+  <!-- Controlli touch -->
+  <section id="touch" class="screen">
+    <div class="t-left">
+      <button class="tbtn" data-k="left" aria-label="Sinistra">‹</button>
+      <button class="tbtn" data-k="right" aria-label="Destra">›</button>
+    </div>
+    <div class="t-right">
+      <button class="tbtn small drift" data-k="drift">DRIFT</button>
+      <button class="tbtn small nitro" data-k="nitro">NITRO</button>
+      <button class="tbtn brake" data-k="brake">FRENO</button>
+      <button class="tbtn gas" data-k="gas">GAS</button>
+    </div>
+    <button id="t-pause" data-pause aria-label="Pausa">❚❚</button>
+  </section>
+
+  <!-- Pausa -->
+  <section id="screen-pause" class="screen modal">
+    <div class="panel">
+      <h2>PAUSA</h2>
+      <nav class="menu-list">
+        <button class="mbtn primary" data-act="resume"><i></i><span>RIPRENDI</span></button>
+        <button class="mbtn" data-act="restart"><i></i><span>RICOMINCIA</span></button>
+        <button class="mbtn" data-act="options"><i></i><span>OPZIONI</span></button>
+        <button class="mbtn" data-act="quit"><i></i><span>MENU PRINCIPALE</span></button>
+      </nav>
+    </div>
+  </section>
+
+  <!-- Risultati -->
+  <section id="screen-results" class="screen modal">
+    <div class="panel wide">
+      <small id="res-sub">GARA CONCLUSA</small>
+      <h2 id="res-title">1° POSTO</h2>
+      <div id="res-badges"></div>
+      <table class="results">
+        <thead><tr><th>POS</th><th>PILOTA</th><th>TEMPO</th><th>MIGLIOR GIRO</th></tr></thead>
+        <tbody id="res-body"></tbody>
+      </table>
+      <div class="row-btns">
+        <button class="mbtn primary" data-act="rematch"><i></i><span>RIVINCITA</span></button>
+        <button class="mbtn" data-act="quit"><i></i><span>MENU</span></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Opzioni -->
+  <section id="screen-options" class="screen modal">
+    <div class="panel wide">
+      <h2>OPZIONI</h2>
+      <div class="opts" id="opts-list"></div>
+      <div class="row-btns">
+        <button class="mbtn primary" data-act="close-options"><i></i><span>FATTO</span></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Comandi -->
+  <section id="screen-controls" class="screen modal">
+    <div class="panel wide">
+      <h2>COMANDI</h2>
+      <div class="controls-grid">
+        <div><kbd>W</kbd> <kbd>↑</kbd><span>Accelera</span></div>
+        <div><kbd>S</kbd> <kbd>↓</kbd><span>Frena / retromarcia</span></div>
+        <div><kbd>A</kbd> <kbd>D</kbd> <kbd>←</kbd> <kbd>→</kbd><span>Sterza</span></div>
+        <div><kbd>SPAZIO</kbd><span>Freno a mano (drift)</span></div>
+        <div><kbd>SHIFT</kbd> <kbd>N</kbd><span>Nitro</span></div>
+        <div><kbd>C</kbd><span>Cambia visuale</span></div>
+        <div><kbd>R</kbd><span>Rimetti l'auto in pista</span></div>
+        <div><kbd>ESC</kbd> <kbd>P</kbd><span>Pausa</span></div>
+        <div><kbd>M</kbd><span>Audio on/off</span></div>
+        <div class="pad"><b>Gamepad</b><span>Stick sx sterza · RT gas · LT freno · A nitro · B/X drift · Y visuale · LB rimetti in pista · Start pausa</span></div>
+        <div class="pad"><b>Touch</b><span>Frecce a sinistra per sterzare; GAS, FRENO, NITRO e DRIFT a destra.</span></div>
+      </div>
+      <div class="row-btns">
+        <button class="mbtn primary" data-act="close-controls"><i></i><span>OK</span></button>
+      </div>
+    </div>
+  </section>
+
+  <div id="rotate-hint"><div>↻</div><p>Ruota il dispositivo in orizzontale per giocare</p></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
