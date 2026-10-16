@@ -33,10 +33,9 @@ export const CARS = [
       brake: 14,           // m/s^2
       nitroAccelMul: 1.45,
       nitroTopMul: 1.14,
-      maxSteer: 0.7,       // rad a bassa velocità (curve strette)
-      maxYaw: 1.0,         // rad/s: tetto alla rotazione (niente "trottola" a bassa velocità)
-      latGrip: 22,         // m/s^2 di accelerazione laterale massima a bassa velocità
-      downforce: 1.0,      // quanto cresce l'aderenza con la velocità (a 70 m/s: +100%). Valori da arcade, non realistici
+      turnRate: 1.15,      // rad/s a sterzo pieno a bassa/media velocità (sterzo arcade)
+      turnRateFast: 0.9,   // rad/s a sterzo pieno a velocità massima
+      cornerAccel: 36,     // m/s^2 "di pianificazione" per gli avversari in curva (valore arcade)
     },
   },
 ];

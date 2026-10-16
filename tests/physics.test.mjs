@@ -1,5 +1,5 @@
 import { CARS } from '../js/config.js';
-import { makeCar, stepCar } from '../js/car-physics.js';
+import { makeCar, stepCar, maxYawRate } from '../js/car-physics.js';
 import assert from 'node:assert/strict';
 
 const spec = CARS[0].physics;
@@ -85,36 +85,48 @@ for (const kmh of [50, 100, 150, 200]) {
   assert.ok(c.vf < -4);
 }
 
-// --- sterzo: nessuna "trottola" a bassa velocità, abbastanza tenuta in velocità, niente falso sottosterzo frenando
+// --- sterzo arcade: immediato, senza sottosterzo, senza trottola
 {
-  const run = (kmh, steer, brake, secs) => {
+  const run = (kmh, steer, brake, secs, sample = null) => {
     const c = makeCar(spec, 0, 0, 0);
     c.vz = kmh / 3.6; c.speed = c.vf = c.vz; c.gear = 4;
-    let t = 0, maxSlip = 0;
+    let t = 0, maxSlip = 0, tReach = null;
     while (t < secs) {
       const hold = !brake && c.speed < kmh / 3.6;
       stepCar(c, { throttle: hold ? 0.8 : (brake ? 0 : 0.1), brake: brake ? 1 : 0, steer }, dt); t += dt;
       maxSlip = Math.max(maxSlip, c.slipAngle);
+      if (tReach === null && Math.abs(c.yawRate) > 0.9 * maxYawRate(spec, c.vf)) tReach = t;
     }
-    return { c, maxSlip };
+    return { c, maxSlip, tReach };
   };
-  // a ~35 km/h a sterzo pieno la rotazione resta sotto il tetto e la coda non sbanda
+  // fermo: lo sterzo non fa ruotare l'auto su sé stessa
+  const still = makeCar(spec, 0, 0, 0);
+  for (let i = 0; i < 240; i++) stepCar(still, { throttle: 0, brake: 0, steer: 1 }, dt);
+  out('da fermo: rotazione °/s', (Math.abs(still.yawRate) * 57.3).toFixed(1));
+  assert.ok(Math.abs(still.yawRate) < 0.02, 'l\'auto ruota da ferma');
+  // bassa velocità: rotazione limitata e coda che segue il muso
   const low = run(25, 1, false, 3);
   out('bassa velocità: rotazione °/s', (Math.abs(low.c.yawRate) * 57.3).toFixed(1));
-  assert.ok(Math.abs(low.c.yawRate) <= spec.maxYaw + 0.02, 'rotazione oltre il tetto');
+  assert.ok(Math.abs(low.c.yawRate) <= spec.turnRate + 0.02, 'rotazione oltre il tetto');
   const rearLat = Math.abs(low.c.vl + low.c.yawRate * spec.wheelbase * 0.5);
   out('bassa velocità: vel. laterale coda m/s', rearLat.toFixed(2));
-  assert.ok(rearLat < 1.0, 'la coda sbanda troppo a bassa velocità');
-  assert.ok(low.c.slipAngle < 6 / 57.3, 'slittamento eccessivo a bassa velocità');
-  // a 150 km/h si usa almeno ~1,7 g di aderenza laterale
-  const fast = run(150, 1, false, 3);
-  const g = Math.abs(fast.c.accLat) / 9.81;
-  out('150 km/h: g laterali a sterzo pieno', g.toFixed(2));
-  assert.ok(g > 1.7, 'sottosterzo: poca tenuta ad alta velocità');
-  // frenando e sterzando da 200 km/h il muso non deve puntare dentro mentre l'auto scivola dritta
-  const brk = run(200, 0.9, true, 1.5);
+  assert.ok(rearLat < 1.0, 'la coda sbanda a bassa velocità');
+  // ad alta velocità raggio stretto e nessun scivolamento (niente sottosterzo)
+  for (const kmh of [100, 150, 200, 250]) {
+    const r = run(kmh, 1, false, 3);
+    const R = r.c.speed / Math.abs(r.c.yawRate);
+    out(`${kmh} km/h sterzo pieno: raggio m / slip °`, R.toFixed(0) + ' / ' + (r.maxSlip * 57.3).toFixed(1) + `  (vel ${(r.c.speed * 3.6).toFixed(0)})`);
+    assert.ok(r.maxSlip < 5 / 57.3, 'scivolamento (sottosterzo) a ' + kmh);
+    if (kmh <= 200) assert.ok(R < 100, 'raggio troppo largo a ' + kmh);
+  }
+  // risposta immediata: 90% della rotazione entro 0,15 s
+  const quick = run(120, 1, false, 1);
+  out('tempo al 90% della rotazione s', quick.tReach?.toFixed(3));
+  assert.ok(quick.tReach !== null && quick.tReach < 0.15, 'sterzo non abbastanza immediato');
+  // frenando e sterzando da 200 km/h l'auto va dove punta
+  const brk = run(200, 1, true, 1.5);
   out('200 km/h frenando: slip max °', (brk.maxSlip * 57.3).toFixed(1));
-  assert.ok(brk.maxSlip < 7 / 57.3, 'falso sottosterzo in frenata');
+  assert.ok(brk.maxSlip < 5 / 57.3, 'falso sottosterzo in frenata');
 }
 
 console.log('\nOK physics');

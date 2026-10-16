@@ -46,20 +46,19 @@ export function makeCar(spec, x = 0, z = 0, heading = 0) {
   };
 }
 
-/** Aderenza laterale disponibile (m/s²) a velocità `v`: la deportanza la fa crescere col quadrato della velocità. */
-export function latGripAt(spec, v, grip = 1) {
-  const k = clamp(Math.abs(v) / 70, 0, 1.3);
-  return spec.latGrip * grip * (1 + (spec.downforce ?? 0) * k * k);
-}
-
-/** Velocità angolare massima ottenibile (rad/s) a velocità `v`, limitata da geometria e aderenza. */
+/**
+ * Sterzo ARCADE: velocità di rotazione (rad/s) a sterzo pieno.
+ * Non dipende dall'aderenza (niente sottosterzo): è una curva scelta a mano.
+ *  - da fermo l'auto non ruota; l'effetto sale in fretta fino a ~20 km/h
+ *  - molto reattivo a bassa/media velocità, appena meno a velocità massima
+ */
 export function maxYawRate(spec, v, grip = 1) {
   const a = Math.abs(v);
-  const wGeom = (a / spec.wheelbase) * Math.tan(spec.maxSteer);
-  const wGrip = (0.98 * latGripAt(spec, a, grip)) / Math.max(a, 4);
-  // tetto alla rotazione: a bassa velocità l'auto non deve ruotare su sé stessa
-  const w = Math.min(wGeom, wGrip, spec.maxYaw ?? 1.0);
-  return w / (1 + 0.06 * Math.pow(a / 70, 2));
+  const slow = spec.turnRate ?? 1.15;
+  const fast = spec.turnRateFast ?? 0.9;
+  const w = lerp(slow, fast, smoothstep(18, 70, a));
+  const authority = smoothstep(0.4, 5.5, a);
+  return w * authority * (0.75 + 0.25 * clamp(grip, 0, 1));
 }
 
 function updateGearbox(car, vf, throttle, dt) {
@@ -144,44 +143,36 @@ export function stepCar(car, input, dt) {
   // fuori pista: resistenza aggiuntiva
   if (car.surfaceDrag > 0 && vf > 0) aLong -= car.surfaceDrag;
 
-  // ---------------- Imbardata ----------------
+  // ---------------- Sterzo arcade ----------------
+  // 1) La rotazione del muso è comandata direttamente dallo sterzo (risposta quasi immediata).
+  // 2) La velocità segue il muso quasi subito: l'auto va dove punta, senza sottosterzo.
+  // 3) Sterzare forte in velocità costa un po' di velocità (invece di un limite di aderenza).
+  // 4) Solo il freno a mano libera il retrotreno e fa scivolare l'auto (drift).
   const vAbs = Math.abs(vf);
-  // cerchio d'aderenza: frenando/accelerando forte resta meno aderenza laterale. Anche la rotazione del muso
-  // ne tiene conto, così il muso non punta dentro la curva mentre l'auto scivola dritta (falso sottosterzo).
-  const demand = Math.abs(aLong);
-  const circle = Math.sqrt(Math.max(0.65, 1 - Math.pow(demand / 30, 2)));
-  const wMax = maxYawRate(s, vf, surfGrip * circle);
+  const wMax = maxYawRate(s, vf, surfGrip);
   let wTarget = -steer * wMax * (vf >= -0.3 ? 1 : -1);
-  if (hb && vAbs > 7) wTarget *= 1.6;
-  // coppia di autoallineamento: riporta il muso lungo la traiettoria (si riduce col freno a mano)
-  // A bassa velocità l'auto "perna" sull'asse posteriore: il baricentro scivola verso l'interno della curva
-  // (vlEq) e la coda segue la traiettoria del muso invece di sbandare verso l'esterno.
-  const ell = s.wheelbase * 0.5;
-  const kin = 1 / (1 + Math.pow(vAbs / 16, 2));
-  const alignK = hb ? 0.85 : 1.8;
-  const align = (-(vl + car.yawRate * ell * kin) / Math.max(vAbs, 6)) * alignK;
-  const wDesired = wTarget + (vAbs > 3 ? align : 0);
-  car.yawRate += (wDesired - car.yawRate) * (1 - Math.exp(-20 * dt));   // sterzo arcade: risposta quasi immediata
-  // quando si è quasi fermi l'imbardata decade
-  if (vAbs < 0.4 && throttle < 0.05) car.yawRate *= 0.9;
+  if (hb && vAbs > 7) wTarget *= 1.45;
+  car.yawRate += (wTarget - car.yawRate) * (1 - Math.exp(-22 * dt));
+  if (vAbs < 0.4 && throttle < 0.05) car.yawRate *= 0.9;   // da fermo la rotazione si spegne
 
   // ---------------- Applicazione forze ----------------
   vf += aLong * dt;
 
-  // aderenza laterale con cerchio d'aderenza semplificato
-  const rearGrip = hb ? 0.26 : 1;
-  const latCap = latGripAt(s, vAbs, surfGrip) * circle * rearGrip;
-  const wasLat = vl;
+  // A bassa velocità l'auto "perna" sull'asse posteriore: il baricentro scivola verso l'interno della curva
+  // (vlEq) e la coda segue il muso invece di sbandare verso l'esterno.
+  const ell = s.wheelbase * 0.5;
+  const kin = 1 / (1 + Math.pow(vAbs / 16, 2));
   const vlEq = hb ? 0 : -car.yawRate * ell * kin;
-  let dvl = (vlEq - vl) * (1 - Math.exp(-(22 + 16 * kin) * dt));   // a bassa velocità le gomme reagiscono più in fretta
-  const cap = latCap * dt;
-  dvl = clamp(dvl, -cap, cap);
+  const follow = hb ? 3.2 : 24 + 14 * kin;               // quanto in fretta la velocità si allinea al muso (1/s)
+  const dvl = (vlEq - vl) * (1 - Math.exp(-follow * dt));
   vl += dvl;
-  // l'attrito laterale scalda le gomme: costa un po' di velocità
-  if (vf > 0) vf -= Math.abs(dvl) * 0.32 * (Math.abs(wasLat) > 2 ? 1 : 0.3);
+  // costo della sterzata in velocità (più sterzi e più sei veloce, più rallenti un po')
+  if (vf > 0) {
+    const k = (hb ? 0.2 : 0.085) * (car.nitroActive ? 0.5 : 1);
+    vf -= vf * k * Math.abs(car.yawRate) * dt;
+  }
 
   // ---------------- Integrazione ----------------
-  // ricostruisco la velocità mondo nel sistema "vecchio": l'inerzia lavora a favore dello slittamento
   car.vx = hx * vf + rx * vl;
   car.vz = hz * vf + rz * vl;
   car.heading = wrapAngle(car.heading + car.yawRate * dt);
